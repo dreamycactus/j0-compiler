@@ -5,19 +5,18 @@ build-type: Simple
 license: AllRightsReserved
 license-file: ""
 synopsis: j0-compiler
-description:  
+description:
 data-dir: ""
 extra-source-files: ""
- 
+
 executable src
     build-depends: QuickCheck -any, base -any, containers -any,
                    haskeline -any, mtl -any, parsec3 -any
     main-is: Main.hs
     buildable: True
     hs-source-dirs: "" src
-    other-modules: Parser2 Lexer2 Emit Codegen Parser Lexer Syntax Emit
-                   Codegen
- 
+    other-modules: Emit Codegen ParserMini Lexert SyntaxMini                   Codegen
+
 test-suite test-src
     build-depends: QuickCheck -any, base -any, containers -any,
                    haskeline -any, mtl -any, parsec3 -any

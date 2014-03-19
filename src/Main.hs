@@ -1,6 +1,6 @@
 module Main where
 
-import Parsert
+import ParserMini
 
 import Control.Monad.Trans
 import System.Console.Haskeline

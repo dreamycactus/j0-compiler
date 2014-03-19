@@ -17,7 +17,7 @@ import Control.Applicative
 import qualified Data.Map as Map
 
 import Codegen
-import qualified Syntax as S
+import qualified SyntaxMini as S
 
 toSig :: [String] -> [(AST.Type, AST.Name)]
 toSig = map (\x -> (double, AST.Name x))

@@ -1,4 +1,4 @@
-module Parsert where
+module ParserMini where
 
 import Text.Parsec
 import Text.Parsec.String (Parser)
@@ -6,28 +6,52 @@ import Control.Applicative ((<$>))
 
 import qualified Text.Parsec.Expr as Ex
 import qualified Text.Parsec.Token as Tok
+import Text.Parsec.Perm
 
 import Lexert
-import Syntaxt
+import SyntaxMini
 
-int :: Parser Expr
-int = do
+typeInt :: Parser Type
+typeInt = do
   n <- integer
-  return $ E_Int (fromInteger n)
+  return T_Int
 
-binary s f assoc = Ex.Infix (reservedOp s >> return (BinOp f)) assoc
-
-binops = [[binary "*" Times Ex.AssocLeft,
-           binary "/" Divide Ex.AssocLeft]
-         ,[binary "+" Plus Ex.AssocLeft,
-           binary "-" Minus Ex.AssocLeft]]
-
-expr :: Parser Expr
-expr =  Ex.buildExpressionParser binops factor
+typeId :: Parser Type
+typeId = do
+    name <- identifier
+    return $ T_Id name
 
 type_ :: Parser Type
 type_ = do
-    return T_Int
+        try typeInt
+    <|> try typeId
+
+binary s f assoc = Ex.Infix (reservedOp s >> return (B_Op f)) assoc
+
+binops = [[binary "*" Multiply Ex.AssocLeft,
+           binary "/" Divide Ex.AssocLeft]
+         ,[binary "+" Add Ex.AssocLeft,
+           binary "-" Subtract Ex.AssocLeft]]
+
+expr :: Parser Exp
+expr =  Ex.buildExpressionParser binops factor
+    <?> ("Expression")
+
+exprInt :: Parser Exp
+exprInt = do
+    n <- integer
+    return $ E_Int (fromInteger n)
+
+exprVar :: Parser Exp
+exprVar = do
+    n <- identifier
+    return $ E_Id n
+
+factor :: Parser Exp
+factor = try exprInt
+      <|> try call
+      <|> try exprVar
+      <|> (parens expr)
 
 variable :: Parser VarDecl
 variable = do
@@ -35,54 +59,65 @@ variable = do
     name <- identifier
     return $ VarDecl t name
 
-call :: Parser Expr
+call :: Parser Exp
 call = do
-  name <- identifier
-  args <- parens $ commaSep expr
-  return $ Call name name args --todo fix
+    cn <- option ("this") (do
+        className <- identifier
+        _         <- char '.'
+        return className)
+    name <- identifier
+    args <- parens $ commaSep expr
+    return $ Call cn (E_Id cn) name args --todo fix
 
 classDeclaration :: Parser ClassDecl
 classDeclaration = do
     reserved "class"
     name <- identifier
     c <- char '{'
-    v <- many fieldDeclaration
-    m <- many methodDeclaration
+    ms <- many methodDeclaration
     d <- char '}'
-    return $ ClassDecl name v m
+    return $ ClassDecl name Nothing [] ms
 
 fieldDeclaration :: Parser VarDecl
 fieldDeclaration = do
     optional (reserved "static")
     var <- variable
-    return var
+    reservedOp ";"
+    return var <?> ("field declaration")
 
 methodDeclaration :: Parser MethodDecl
 methodDeclaration = do
     optional (reserved "static")
-    t <- type_
-    name <- identifier
-    args <- parens $ many variable
-    op <- char '{'
-    vars <- many variable
-    stats <- many statement
-    ed <- char '}'
-    return $ MethodDecl t name args vars stats
+    t       <- type_
+    name    <- identifier
+    args    <- parens $ commaSep variable
+    op      <- char '{'
+    vars    <- many variable
+    stats   <- many statement
+    ret     <- returnStatement
+    ed      <- char '}'
+    return $ MethodDecl t name args vars stats ret
+    <?> ("methodDeclaration")
+
+methodBody :: Parser ([Statement], [VarDecl])
+methodBody = permute (f <$?> ([], many statement)
+                        <|?> ([], many fieldDeclaration) )
+        where
+            f a b = (a, b)
 
 statement :: Parser Statement
 statement = try block
     <|> try assign
     <|> try ifStatement
     <|> try whileStatement
-    <|> try returnStatement
 
 assign :: Parser Statement
 assign = do
     name <- identifier
     char '='
     val <- expr
+    reservedOp ";"
     return $ S_Assign name val
-
 
 ifStatement :: Parser Statement
 ifStatement = do
@@ -101,16 +136,12 @@ whileStatement = do
     body <- statement
     return $ S_While cond body
 
-returnStatement :: Parser Statement
+returnStatement :: Parser Exp
 returnStatement = do
     reserved "return"
     value <- expr
-    return $ S_Return value
-
-factor :: Parser Expr
-factor = try int
-      <|> try call
-      <|> (parens expr)
+    reservedOp ";"
+    return value
 
 block :: Parser Statement
 block = do
@@ -132,7 +163,7 @@ toplevel = many $ do
     def <- defn
     return def
 
-parseExpr :: String -> Either ParseError Expr
+parseExpr :: String -> Either ParseError Exp
 parseExpr s = parse (contents expr) "<stdin>" s
 
 parseToplevel :: String -> Either ParseError [ClassDecl]
