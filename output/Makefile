@@ -5,7 +5,7 @@ LIBPATHS=../yet_another_project/
 LINKER=gcc -o
 
 EXEC=run
-BINARY=prog
+BINARY=prog2
 LLSOURCES=$(wildcard *.ll)
 ASMSOURCES=$(wildcard *.s)
 OBJECTS=$(ASMSOURCES:.s=.o)
