@@ -15,6 +15,7 @@ import Control.Applicative
 import LLVM.General.AST
 import qualified LLVM.General.AST.Global as A.G
 import qualified LLVM.General.AST as AST
+import LLVM.General.AST.AddrSpace
 
 import qualified LLVM.General.AST.Constant as C
 import qualified LLVM.General.AST.Attribute as A
@@ -38,7 +39,8 @@ newtype LLVM a = LLVM { unLLVM :: State Module2 a }
   deriving (Functor, Applicative, Monad, MonadState Module2)
 
 runLLVM :: Module2 -> LLVM a -> Module2
-runLLVM = flip (execState . unLLVM)
+runLLVM = do
+    flip (execState . unLLVM)
 
 emptyModule :: String -> Module2
 emptyModule label = Module2 { modul = defaultModule { moduleName = label, moduleDefinitions =  []}, classFT = []}
@@ -74,13 +76,14 @@ defineClassStruct nm vars = do
     fts <- gets module2FTs
     modify $ \s -> s { classFT = fts ++ [ft] }
     addDefn $ ty
---    res2 <- addDefn $ GlobalDefinition $ globalVariableDefaults
---        { A.G.name = nm
---        , A.G.type' = ty
---        }
+    addDefn $ GlobalDefinition $ globalVariableDefaults
+        { A.G.name = "hello"
+        , A.G.type' = NamedTypeReference nm
+        }
 
     where
-        ty = TypeDefinition nm $ Just $ (StructureType False $ map fst vars )
+        ty = TypeDefinition nm $ Just st
+        st = (StructureType False $ map fst vars )
         vars2 = map (\(x, AST.Name n) -> (x, n)) vars
         ft = ClassFieldTable ty vars2
 
@@ -122,7 +125,7 @@ type SymbolTable = [(String, (Type, Operand))]
 data ClassFieldTable
     = ClassFieldTable { ty :: AST.Definition, fields :: [(AST.Type, String)] }
     deriving (Eq, Show)
-
+getFTFields (ClassFieldTable _ fds) = fds
 
 data CodegenState
   = CodegenState {
@@ -132,9 +135,13 @@ data CodegenState
   , blockCount   :: Int                      -- Count of basic blocks
   , count        :: Word                     -- Count of unnamed instructions
   , names        :: Names                    -- Name Supply
-  , mod          :: [ClassFieldTable]
-  , currentClass :: String
+  , ft           :: [ClassFieldTable]
+  , currentClass :: (String, Maybe Operand)
   } deriving Show
+
+codeFieldTable :: CodegenState -> [ClassFieldTable]
+codeFieldTable (CodegenState _ _ _ _ _ _ ft _) = ft
+codeCurrentClass (CodegenState _ _ _ _ _ _ _ cl) = cl
 
 data BlockState
   = BlockState {
@@ -169,7 +176,7 @@ emptyBlock :: Int -> BlockState
 emptyBlock i = BlockState i [] Nothing
 
 emptyCodegen :: [ClassFieldTable] -> String -> CodegenState
-emptyCodegen cft clazz = CodegenState (Name entryBlockName) Map.empty [] 1 0 Map.empty cft clazz
+emptyCodegen cft clazz = CodegenState (Name entryBlockName) Map.empty [] 1 0 Map.empty cft (clazz, Nothing)
 
 execCodegen :: [ClassFieldTable]-> String -> Codegen a -> CodegenState
 execCodegen cft clazz m = execState (runCodegen m) $ emptyCodegen cft clazz
@@ -251,13 +258,6 @@ getvar var = do
     Just x  -> return x
     Nothing -> error $ "Local variable not in scope: " ++ show var
 
---declareClass :: String -> Type -> Codegen ()
---declareClass nm cl = do
---    typs <- gets typetab
---    case lookup nm typs of
---        Just x -> error $ "Multiple declaration of class " ++ show cl
---        Nothing -> modify $ \s -> s { typetab = [(nm, cl)] ++ typs }
--------------------------------------------------------------------------------
 
 -- References
 local ::  Name -> Operand
@@ -334,3 +334,14 @@ phi ty incoming = instr $ Phi ty incoming []
 
 ret :: Operand -> Codegen (Named Terminator)
 ret val = terminator $ Do $ Ret (Just val) []
+
+-- Class Struct
+structFieldFromOff :: Operand -> Int -> Codegen Operand
+structFieldFromOff ty off = do
+                                 res <- instr $ GetElementPtr
+                                        True
+                                        ty
+--                                        (ConstantOperand $ C.Null (PointerType ty (AddrSpace 0)))
+                                        [ConstantOperand $ C.Int 32 0, ConstantOperand $ C.Int 32 (fromIntegral off)]
+                                        []
+                                 return res

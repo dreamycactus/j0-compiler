@@ -58,7 +58,7 @@ data Exp
     | E_Int Int
     | E_false
     | E_true
-    | E_Id Id
+    | E_Id Id Id
     | E_this
     | E_Not Exp
     deriving (Eq, Ord, Show)

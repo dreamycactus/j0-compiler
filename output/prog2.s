@@ -5,18 +5,13 @@
 	.type	main,@function
 main:                                   # @main
 	.cfi_startproc
-# BB#0:                                 # %if.exit
-	subq	$24, %rsp
-.Ltmp1:
-	.cfi_def_cfa_offset 32
-	movl	%edi, 12(%rsp)
-	movl	$1, %edi
-	callq	putchar
-	xorl	%eax, %eax
-	addq	$24, %rsp
+# BB#0:                                 # %entry
+	movl	%edi, -8(%rsp)
+	movl	$5, -8(%rsp)
+	movl	$5, %eax
 	ret
-.Ltmp2:
-	.size	main, .Ltmp2-main
+.Ltmp0:
+	.size	main, .Ltmp0-main
 	.cfi_endproc
 
 

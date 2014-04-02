@@ -30,7 +30,7 @@ toSig = map (\x -> (double, AST.Name x))
 typeToAST :: S.Type -> [ClassFieldTable] -> AST.Type
 typeToAST (S.T_Int) _ = AST.IntegerType 32
 typeToAST (S.T_Id id) ft = case (findTypeFromModule id ft) of
-    Nothing -> AST.VoidType
+    Nothing -> error $ "No type exists " ++ id ++ (show ft)
     Just t  -> t
 
 findTypeFromModule :: String -> [ClassFieldTable] -> Maybe AST.Type
@@ -66,40 +66,62 @@ codegenClass isMain (S.ClassDecl name _ fd md) = do
 codegenMethod :: String -> S.MethodDecl -> LLVM ()
 codegenMethod clazz (S.MethodDecl ty name args decl body retty) = do
     ft <- gets module2FTs
-    define (typeToAST ty ft) (classFunc clazz name) (map (varDeclTuple ft) args2) (blks ft)
+    define (typeToAST ty ft) (classFunc clazz name) (map (varDeclTuple ft) ([args2]++args)) (blks ft)
     return ()
         where
-        args2 = [(S.VarDecl (S.T_Id clazz) "this")] ++ args
+        args2 = (S.VarDecl (S.T_Id clazz) "this")
         blks dd = createBlocks $ execCodegen dd clazz $ do
           entry <- addBlock entryBlockName
           setBlock entry
-          forM args2 $ \a -> do
+          -- This operand
+          thisop <- alloca $ fst $ param dd args2
+          store thisop (local $ AST.Name $ vn args2)
+          assign (vn args2) (fst (param dd args2)) thisop
+          forM args $ \a -> do
             var <- alloca $ fst $ param dd a
             store var (local $ AST.Name $ vn a)
             assign (vn a) (fst (param dd a)) var
-          res <- mapM cgenStatement body
+          rr <- mapM (cgenVarDecl) decl
+          sss <- gets symtab
+          (curTy, _ ) <- gets codeCurrentClass
+          modify $ \s -> s { currentClass = (curTy, Just thisop) }
+          res <- mapM (cgenStatement) body
           resret <- cgenExp retty
-          ret resret
+          ret $ resret
         vn a = S.varName a
         param dd a = varDeclTuple dd a
+
+cgenVarDecl :: S.VarDecl -> Codegen ()
+cgenVarDecl vd = do
+    ft <- gets codeFieldTable
+    let (typ, AST.Name nm) = varDeclTuple ft vd
+    newvar <- alloca typ
+    lcls <- gets symtab
+    modify $ \s -> s { symtab = [(nm, (typ, newvar))] ++ lcls }
+
+cgenStatementWrap :: AST.Operand -> S.Statement -> Codegen AST.Operand
+cgenStatementWrap op st = do
+    cgenStatement st
 
 cgenStatement :: S.Statement -> Codegen AST.Operand
 cgenStatement (S.S_Block ss) = do
     res <- mapM cgenStatement ss
     return $ last res
 
---cgenStatement (S.S_Assign var classId val) = do
---    (ty, a) <- getvar var
---    cval <- cgenExp val
---    store a cval
---    return cval
---    where
---        realvar v = case classId of
---            "" -> do
---                syms <- gets symtab
---                return $ symvar v syms
---            c  -> AST.GetElementPtr True
---        symvar var syms = Map.lookup var syms
+cgenStatement (S.S_Assign id classId val) = do
+    valop <- cgenExp val
+    syms <- gets symtab
+    case classId of
+        ""   -> case (lookup id syms) of
+                    Just (symty, symop)  -> do
+                        store symop valop
+                        return symop
+                    Nothing -> do
+                        ptrop <- classFieldPtr classId id
+                        store ptrop valop
+        cid  -> do
+                    ptrop <- classFieldPtr classId id
+                    store ptrop valop
 
 cgenStatement (S.S_Print e) = do
     res <- cgenExp e
@@ -141,16 +163,20 @@ cgenStatement (S.S_Void exp) = do
     return e
 cgenExp :: S.Exp -> Codegen AST.Operand
 cgenExp (S.E_Int n) = return $ cons $ (C.Int 32 (fromIntegral n))
-cgenExp (S.E_Id id) = do
-    syms <- gets symtab
-    res <- let ss = getval syms
-            in case (ss) of
+cgenExp (S.E_Id classId id) = do
+    syms <- gets    symtab
+    res <- case (lookup id syms) of
                 Just s -> do
-                    return $ snd $ snd s
-                Nothing -> error $ "Symbol with id not defined: " ++ id
+                    return $ snd s
+                Nothing -> do
+                    fieldTable <- gets codeFieldTable
+                    (currClazzTy, currClazzOp) <- gets codeCurrentClass
+                    case currClazzOp of
+                            Nothing -> return $ AST.ConstantOperand $ C.GlobalReference $ AST.Name "hello"
+                            Just cop -> do
+                                ptrop <- classFieldPtr classId id
+                                load ptrop
     return res
-    where
-        getval syms = (find (\(i, (ty,val)) -> i == id) syms)
 
 cgenExp (S.Call cid callee fn args) = do
   largs <- mapM cgenExp args
@@ -162,42 +188,52 @@ cgenExp (S.B_Op op a b) = do
       cb <- cgenExp b
       f ca cb
     Nothing -> error "No such operator"
+
+classFieldPtr :: String -> String -> Codegen AST.Operand
+classFieldPtr classId fieldId = do
+    ft <- gets codeFieldTable
+    (ctynm, currClazzOp) <- case classId of
+        ""      -> gets codeCurrentClass
+        cid     -> do
+            syms <- gets symtab
+            case lookup classId syms of
+                Just (tty, top) -> return $ (findTypeName ft tty, Just top)
+                Nothing -> error $ "No local object named " ++ classId
+    case currClazzOp of
+        Nothing -> return $ error $ "No class field named" ++ fieldId ++ " in object " ++ classId
+        Just cop -> do
+            let clazzFieldTable = findCurrentClassTable ft ctynm
+                in case (clazzFieldTable) of
+                    Just cc@(ClassFieldTable (AST.TypeDefinition nm (Just ty)) fields) ->
+                        case (findIndexOfField cc fieldId) of
+                            (Just fieldty, Just n) ->
+                                structFieldFromOff cop
+                                    $ findOffestOfField ty n
+                            (_, Nothing) -> do error ( "In class, symbol with id not defined: " ++ ctynm ++ "." ++ fieldId)
+                    Nothing ->  do error $ "Symbol with id not defined: "++ ctynm ++ "." ++ fieldId
+
 addClassIdentifier clazz item = clazz ++ "__" ++ item
 
---getClazzFieldOffset :: [ClassFieldTable] -> AST.StructureType -> String -> Codegen Maybe Int
---getClazzFieldOffset defs clazzty field = do
---    where
---        fieldIndex fd (AST.StructureType _ tys) = findIndex (\x ->
+findTypeName :: [ClassFieldTable] -> AST.Type -> String
+findTypeName ft ty = do
+    case (find (\(ClassFieldTable (AST.TypeDefinition nm (Just td)) _) -> td == ty) ft) of
+        Just (ClassFieldTable (AST.TypeDefinition (AST.Name nm) (Just td) ) _ ) -> nm
+        Nothing -> ""
 
+findCurrentClassTable :: [ClassFieldTable] -> String -> Maybe ClassFieldTable
+findCurrentClassTable fts cur = find (\(ClassFieldTable (AST.TypeDefinition nm _) _) -> nm == (AST.Name cur)) fts
 
---codegenStatement (S.S_Block stats) = do
---codegenStatement (S.S_Assign lhs rhs) = do
---codegenStatement (S.S_If cond thenArm elseArm) = do
---codegenStatement (S.S_While cond body) = do
---codegenStatement (S.S_Print exp) = do
---codegenExpr
+findIndexOfField :: ClassFieldTable -> String -> (Maybe AST.Type, Maybe Int)
+findIndexOfField (ClassFieldTable _ fields) fd = (liftM fst $ find matchName fields, findIndex matchName fields)
+    where matchName = (\(ty, nm) -> nm == fd)
 
---codegenTop (S.Function name args body) = do
---  define double name fnargs bls
---  where
---    fnargs = toSig args
---    bls = createBlocks $ execCodegen $ do
---      entry <- addBlock entryBlockName
---      setBlock entry
---      forM args $ \a -> do
---        var <- alloca double
---        store var (local (AST.Name a))
---        assign a var
---      cgen body >>= ret
---
---codegenTop exp = do
---  define double "main" [] blks
---  where
---    blks = createBlocks $ execCodegen $ do
---      entry <- addBlock entryBlockName
---      setBlock entry
---      cgen exp >>= ret
+findOffestOfField :: AST.Type -> Int -> Int
+findOffestOfField (AST.StructureType _ tys) idx = foldr (\x acc -> acc + sizeofType x) 0 $ take idx tys
 
+sizeofType :: AST.Type -> Int
+sizeofType (AST.IntegerType 32) = 1
+sizeofType (AST.StructureType _ tys) = sum $ map sizeofType tys
+--sizeofType x = error $ show x
 -------------------------------------------------------------------------------
 -- Operations
 -------------------------------------------------------------------------------

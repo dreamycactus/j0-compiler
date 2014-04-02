@@ -27,19 +27,6 @@ type_ = do
     <|> try typeId
 
 binary s f assoc = Ex.Infix (reservedOp s >> return (B_Op f)) assoc
---
---operator :: Parser String
---operator = do
---  c <- Tok.opStart emptyDef
---  cs <- many $ Tok.opLetter emptyDef
---  return (c:cs)
---
---op :: Parser String
---op = do
---    whitespace
---    o <- operator
---    whitespace
---    return o
 
 binops = [[binary "*" Multiply Ex.AssocLeft
           ,binary "/" Divide Ex.AssocLeft]
@@ -59,8 +46,12 @@ exprInt = do
 
 exprVar :: Parser Exp
 exprVar = do
+    classId <- option "" (try (do
+        classId <- identifier
+        reservedOp "."
+        return classId))
     n <- identifier
-    return $ E_Id n
+    return $ E_Id classId n
 
 factor :: Parser Exp
 factor = try exprInt
@@ -82,7 +73,7 @@ call = do
         return className)
     name <- identifier
     args <- parens $ commaSep expr
-    return $ Call cn (E_Id "") name args --todo fix
+    return $ Call cn (E_Id "" "") name args --todo fix
 
 program :: Parser Program
 program = do
@@ -116,7 +107,7 @@ methodDeclaration = do
     name    <- identifier
     args    <- parens $ commaSep variable
     (vars, stats, ret) <- braces (do {
-          vars    <- many variable
+          vars    <- many $ try ( do { v <- variable; reservedOp ";"; return v })
         ; stats   <- many statement
         ; ret     <- returnStatement
         ; return (vars, stats, ret)
@@ -145,12 +136,12 @@ statement = try block
 
 assign :: Parser Statement
 assign = do
-    classId <- option "" (do
+    classId <- option "" (try (do
         classId <- identifier
         reservedOp "."
-        return classId)
+        return classId))
     name <- identifier
-    char '='
+    reservedOp "="
     val <- expr
     reservedOp ";"
     return $ S_Assign name classId val

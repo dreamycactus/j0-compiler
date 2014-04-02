@@ -1,24 +1,18 @@
-; ModuleID = 'my cool compiler'
+%Foo = type { i32 }
+
+@hello = external global %Foo
 
 declare i32 @putchar(i32)
 
-define i32 @main({} %this, i32 %i) {
+define i32 @main({ i32 } %this) {
 entry:
-  %0 = alloca {}
-  store {} %this, {}* %0
+  %0 = alloca { i32 }
+  store { i32 } %this, { i32 }* %0
   %1 = alloca i32
-  store i32 %i, i32* %1
-  br i1 true, label %if.then, label %if.else
-
-if.then:                                          ; preds = %entry
-  %2 = call i32 @putchar(i32 1)
-  br label %if.exit
-
-if.else:                                          ; preds = %entry
-  %3 = call i32 @putchar(i32 0)
-  br label %if.exit
-
-if.exit:                                          ; preds = %if.else, %if.then
-  %4 = phi i32 [ 1, %if.then ], [ 0, %if.else ]
-  ret i32 0
+  %2 = getelementptr inbounds { i32 }* %0, i32 0, i32 0
+  store i32 5, i32* %2
+  %3 = getelementptr inbounds { i32 }* %0, i32 0, i32 0
+  %4 = load i32* %3
+  ret i32 %4
 }
+
