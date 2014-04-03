@@ -1,4 +1,8 @@
 j0-compiler
 ===========
 
-A J0 compiler outputting LLVM
+A j0 compiler outputting LLVM IR for a school project. j0 is a toy language that resembles Java. The BNF for the language is found here https://gist.github.com/dreamycactus/20eac37eda6d954315db
+
+I wrote the compiler in Haskell using llvm-general and used stephen diel's tutorial and the minijava compiler ( https://github.com/paulcc/minijava-compiler ) as reference. My experience with Haskell is pretty limited and llvm-general was completely new to me. Some nice people on the haskell-llvm irc were kind enough to help me getting everything set up.
+
+The compiler itself probably has quite a few bugs. It isn't fully correct, and often doesn't catch compilation errors, resulting in problems during linking or execution... but most of the common features are working. That's good enough for now.
