@@ -6,12 +6,19 @@
 main:                                   # @main
 	.cfi_startproc
 # BB#0:                                 # %entry
-	movl	%edi, -8(%rsp)
-	movl	$5, -8(%rsp)
-	movl	$5, %eax
+	subq	$24, %rsp
+.Ltmp1:
+	.cfi_def_cfa_offset 32
+	movl	%esi, 20(%rsp)
+	movl	%edi, 16(%rsp)
+	movl	$65, %edi
+	callq	putchar
+	movl	$5, 20(%rsp)
+	movl	12(%rsp), %eax
+	addq	$24, %rsp
 	ret
-.Ltmp0:
-	.size	main, .Ltmp0-main
+.Ltmp2:
+	.size	main, .Ltmp2-main
 	.cfi_endproc
 
 

@@ -1,5 +1,5 @@
+\begin{code}
 {-# LANGUAGE OverloadedStrings #-}
-
 module Emit where
 
 import LLVM.General.Module
@@ -33,21 +33,28 @@ typeToAST (S.T_Id id) ft = case (findTypeFromModule id ft) of
     Nothing -> error $ "No type exists " ++ id ++ (show ft)
     Just t  -> t
 
-findTypeFromModule :: String -> [ClassFieldTable] -> Maybe AST.Type
+findTypeFromModule :: String -> [ClassFieldTable]
+                   -> Maybe AST.Type
 findTypeFromModule nm ft =
     case typedef of
         Nothing -> Nothing
-        Just (ClassFieldTable (AST.TypeDefinition _ mty) _) -> mty
+        Just (ClassFieldTable (AST.TypeDefinition _ mty) _)
+            -> mty
     where
-        typedef = find (\def ->  case def of
-            ClassFieldTable (AST.TypeDefinition (AST.Name id) mt) _ -> id == nm
+        typedef = find (\def -> case def of
+            ClassFieldTable (AST.TypeDefinition
+                                (AST.Name id)
+                                mt) _
+                -> id == nm
             _                      -> False) ft
 
-varDeclTuple :: [ClassFieldTable] -> S.VarDecl -> (AST.Type, AST.Name)
-varDeclTuple ft (S.VarDecl ty nm) = (typeToAST ty ft, AST.Name nm)
+varDeclTuple :: [ClassFieldTable] -> S.VarDecl
+             -> (AST.Type, AST.Name)
+varDeclTuple ft (S.VarDecl ty nm)
+    = (typeToAST ty ft, AST.Name nm)
 
 classFunc :: String -> String -> String
-classFunc nm func = nm ++ "__" ++ func
+classFunc nm func = func
 
 codegenTop :: S.Program -> LLVM ()
 codegenTop prog = trace "entering codegen" $ do
@@ -59,14 +66,19 @@ codegenTop prog = trace "entering codegen" $ do
 codegenClass :: Bool -> S.ClassDecl -> LLVM ()
 codegenClass isMain (S.ClassDecl name _ fd md) = do
     ft <- gets module2FTs
-    (res1) <- defineClassStruct (AST.Name name) (map (varDeclTuple ft) fd)
+    (res1) <- defineClassStruct (AST.Name name)
+                                (map (varDeclTuple ft) fd)
     mapM (codegenMethod name) md
     return ()
 
 codegenMethod :: String -> S.MethodDecl -> LLVM ()
-codegenMethod clazz (S.MethodDecl ty name args decl body retty) = do
+codegenMethod clazz
+              (S.MethodDecl ty name args decl body retty) = do
     ft <- gets module2FTs
-    define (typeToAST ty ft) (classFunc clazz name) (map (varDeclTuple ft) ([args2]++args)) (blks ft)
+    define (typeToAST ty ft)
+           (classFunc clazz name)
+           (map (varDeclTuple ft) ([args2]++args))
+           (blks ft)
     return ()
         where
         args2 = (S.VarDecl (S.T_Id clazz) "this")
@@ -84,7 +96,7 @@ codegenMethod clazz (S.MethodDecl ty name args decl body retty) = do
           rr <- mapM (cgenVarDecl) decl
           sss <- gets symtab
           (curTy, _ ) <- gets codeCurrentClass
-          modify $ \s -> s { currentClass = (curTy, Just thisop) }
+          modify $ \s -> s{ currentClass= (curTy, Just thisop) }
           res <- mapM (cgenStatement) body
           resret <- cgenExp retty
           ret $ resret
@@ -98,10 +110,6 @@ cgenVarDecl vd = do
     newvar <- alloca typ
     lcls <- gets symtab
     modify $ \s -> s { symtab = [(nm, (typ, newvar))] ++ lcls }
-
-cgenStatementWrap :: AST.Operand -> S.Statement -> Codegen AST.Operand
-cgenStatementWrap op st = do
-    cgenStatement st
 
 cgenStatement :: S.Statement -> Codegen AST.Operand
 cgenStatement (S.S_Block ss) = do
@@ -162,25 +170,32 @@ cgenStatement (S.S_Void exp) = do
     e <- cgenExp exp
     return e
 cgenExp :: S.Exp -> Codegen AST.Operand
-cgenExp (S.E_Int n) = return $ cons $ (C.Int 32 (fromIntegral n))
+cgenExp (S.E_Int n)
+    = return $ cons $ (C.Int 32 (fromIntegral n))
 cgenExp (S.E_Id classId id) = do
     syms <- gets    symtab
-    res <- case (lookup id syms) of
-                Just s -> do
-                    return $ snd s
-                Nothing -> do
-                    fieldTable <- gets codeFieldTable
-                    (currClazzTy, currClazzOp) <- gets codeCurrentClass
-                    case currClazzOp of
-                            Nothing -> return $ AST.ConstantOperand $ C.GlobalReference $ AST.Name "hello"
-                            Just cop -> do
-                                ptrop <- classFieldPtr classId id
-                                load ptrop
-    return res
+    case classId of
+        ""   -> case (lookup id syms) of
+                    Just (symty, symop)  -> do
+                        load symop
+                    Nothing -> do
+                        ptrop <- classFieldPtr classId id
+                        load ptrop
+        cid  -> do
+                    ptrop <- classFieldPtr classId id
+                    load ptrop
 
 cgenExp (S.Call cid callee fn args) = do
-  largs <- mapM cgenExp args
-  call (externf (AST.Name (classFunc cid fn))) largs
+    syms <- gets symtab
+    largs <- mapM cgenExp args
+    objs <- case (lookup cid syms) of
+            Just (cty, cop) -> do
+                ll <- load cop
+                return [ll]
+            Nothing -> return []
+
+    call (externf (AST.Name (classFunc cid fn))) $ objs++largs
+
 cgenExp (S.B_Op op a b) = do
   case Map.lookup op binops of
     Just f  -> do
@@ -197,46 +212,69 @@ classFieldPtr classId fieldId = do
         cid     -> do
             syms <- gets symtab
             case lookup classId syms of
-                Just (tty, top) -> return $ (findTypeName ft tty, Just top)
-                Nothing -> error $ "No local object named " ++ classId
+                Just (tty, top)
+                    -> return $ (findTypeName ft tty, Just top)
+                Nothing
+                    -> error $ "No local object named "
+                        ++ classId
     case currClazzOp of
-        Nothing -> return $ error $ "No class field named" ++ fieldId ++ " in object " ++ classId
+        Nothing -> return $ error
+          $ "No class field named"++fieldId++" in object "
+            ++classId
         Just cop -> do
             let clazzFieldTable = findCurrentClassTable ft ctynm
                 in case (clazzFieldTable) of
-                    Just cc@(ClassFieldTable (AST.TypeDefinition nm (Just ty)) fields) ->
+                    Just cc@(ClassFieldTable
+                              (AST.TypeDefinition nm (Just ty))
+                               fields) ->
                         case (findIndexOfField cc fieldId) of
                             (Just fieldty, Just n) ->
                                 structFieldFromOff cop
                                     $ findOffestOfField ty n
-                            (_, Nothing) -> do error ( "In class, symbol with id not defined: " ++ ctynm ++ "." ++ fieldId)
-                    Nothing ->  do error $ "Symbol with id not defined: "++ ctynm ++ "." ++ fieldId
+                            (_, Nothing)
+                              -> do error ("In class, \
+                                     \symbol with id not define\
+                                     \d: "++ctynm ++ "."
+                                     ++ fieldId)
+                    Nothing ->  do error $ "Symbol with id not \
+                        \defined: "++ ctynm ++ "." ++ fieldId
 
-addClassIdentifier clazz item = clazz ++ "__" ++ item
+addClassIdentifier clazz item = item
 
 findTypeName :: [ClassFieldTable] -> AST.Type -> String
 findTypeName ft ty = do
-    case (find (\(ClassFieldTable (AST.TypeDefinition nm (Just td)) _) -> td == ty) ft) of
-        Just (ClassFieldTable (AST.TypeDefinition (AST.Name nm) (Just td) ) _ ) -> nm
+    case (find (\(ClassFieldTable (AST.TypeDefinition nm
+                                                     (Just td))
+                                   _) -> td == ty) ft) of
+        Just (ClassFieldTable (
+                AST.TypeDefinition (AST.Name nm) (Just td) )
+                _ ) -> nm
         Nothing -> ""
 
-findCurrentClassTable :: [ClassFieldTable] -> String -> Maybe ClassFieldTable
-findCurrentClassTable fts cur = find (\(ClassFieldTable (AST.TypeDefinition nm _) _) -> nm == (AST.Name cur)) fts
+findCurrentClassTable :: [ClassFieldTable] -> String
+                      -> Maybe ClassFieldTable
+findCurrentClassTable fts cur
+    = find (\(ClassFieldTable (AST.TypeDefinition nm _) _)
+            -> nm == (AST.Name cur)) fts
 
-findIndexOfField :: ClassFieldTable -> String -> (Maybe AST.Type, Maybe Int)
-findIndexOfField (ClassFieldTable _ fields) fd = (liftM fst $ find matchName fields, findIndex matchName fields)
+findIndexOfField :: ClassFieldTable -> String
+                 -> (Maybe AST.Type, Maybe Int)
+findIndexOfField (ClassFieldTable _ fields) fd
+    = ( liftM fst $ find matchName fields
+      , findIndex matchName fields)
     where matchName = (\(ty, nm) -> nm == fd)
 
 findOffestOfField :: AST.Type -> Int -> Int
-findOffestOfField (AST.StructureType _ tys) idx = foldr (\x acc -> acc + sizeofType x) 0 $ take idx tys
+findOffestOfField (AST.StructureType _ tys) idx
+    = foldr (\x acc -> acc + sizeofType x) 0 $ take idx tys
 
 sizeofType :: AST.Type -> Int
 sizeofType (AST.IntegerType 32) = 1
 sizeofType (AST.StructureType _ tys) = sum $ map sizeofType tys
 --sizeofType x = error $ show x
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 -- Operations
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 
 lt :: AST.Operand -> AST.Operand -> Codegen AST.Operand
 lt a b = do
@@ -257,40 +295,21 @@ binops = Map.fromList [
     , (S.GreaterThan, gt)
   ]
 
-cgen :: S.Exp -> Codegen AST.Operand
---cgen (S.UnaryOp op a) = do
---  cgen $ S.Call ("unary" ++ op) [a]
---cgen (S.S_Assign (S.E_Id var) val) = do
---  a <- getvar var
---  cval <- cgen val
---  store a cval
---  return cval
-cgen (S.B_Op op a b) = do
-  case Map.lookup op binops of
-    Just f  -> do
-      ca <- cgen a
-      cb <- cgen b
-      f ca cb
-    Nothing -> error "No such operator"
---cgen (S.E_Id x) = getvar x >>= load
---cgen (S.Float n) = return $ cons $ C.Float (F.Double n)
-cgen (S.Call _ _ fn args) = do
-  largs <- mapM cgen args
-  call (externf (AST.Name fn)) largs
-
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 -- Compilation
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 
 liftError :: ErrorT String IO a -> IO a
 liftError = runErrorT >=> either fail return
 
-codegen :: Module2 -> S.Program -> IO Module2
+codegen :: Module2 -> S.Program -> IO (Module2, String)
 codegen mod fns = withContext $ \context ->
   liftError $ withModuleFromAST context newast $ \m -> do
     llstr <- moduleLLVMAssembly m
     putStrLn llstr
-    return mimi
+    return (mimi, llstr)
   where
     modn    = codegenTop fns
     mimi@(Module2 newast _ ) = runLLVM mod modn
+
+\end{code}

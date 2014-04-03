@@ -15,15 +15,15 @@ import qualified LLVM.General.AST as AST
 initModule :: Module2
 initModule = emptyModule "my cool compiler"
 
-process :: Module2 -> String -> IO (Maybe Module2)
+process :: Module2 -> String -> IO (Maybe Module2, String)
 process modo source = do
   let res = parseToplevel source
   case res of
-    Left err -> print err >> return Nothing
+    Left err -> print err >> return (Nothing, "")
     Right ex -> do
-      ast <- codegen modo ex
-      mapM (print . show) $ module2Definitions modo
-      return $ Just ast
+      (ast, out) <- codegen modo ex
+--      tt <- mapM (print . show) $ module2Definitions modo
+      return (Just ast,out)
 
 repl :: IO ()
 repl = runInputT defaultSettings (loop initModule)
@@ -33,14 +33,17 @@ repl = runInputT defaultSettings (loop initModule)
     case minput of
       Nothing -> outputStrLn "Goodbye."
       Just input -> do
-        modn <- liftIO $ process mod input
+        (modn, _) <- liftIO $ process mod input
         case modn of
           Just modn -> loop modn
           Nothing -> loop mod
 
-
-processFile :: String -> IO (Maybe Module2  )
-processFile fname = readFile fname >>= process initModule
+processFile :: String -> IO (Maybe Module2)
+processFile fname = do
+    inp <- readFile fname
+    (m, out) <- process initModule inp
+    writeFile (fname ++ ".ll") out
+    return m
 
 main :: IO ()
 main = do

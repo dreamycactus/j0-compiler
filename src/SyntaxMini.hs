@@ -36,24 +36,27 @@ data Type
 
 data Statement
     = S_Block       [Statement]
-    | S_If          { cond :: Exp, then_arm :: Statement, else_arm :: Statement }
+    | S_If          { cond :: Exp, then_arm :: Statement
+                    , else_arm :: Statement }
     | S_While       { cond :: Exp, while_body :: Statement }
     | S_Print       Exp
     | S_Return      Exp
     | S_Void        Exp
     | S_Assign      { var :: Id, classId :: Id, value :: Exp }
-    | S_ArrayAssign { var :: Id, arr_index :: Exp, value :: Exp }
+    | S_ArrayAssign { var :: Id, arr_index :: Exp, value :: Exp}
     deriving (Eq, Show)
 
 data Op
-    = Add | Subtract | Multiply | Divide | LessThan | GreaterThan
+    = Add | Subtract | Multiply | Divide | LessThan
+          | GreaterThan
     deriving (Eq, Ord, Show)
 
 data Exp
     = B_Op Op Exp Exp
     | E_Index { array_exp, index_exp :: Exp }
     | Length Exp
-    | Call { class_ :: Id, callee :: Exp, method :: Id, args :: [Exp] }
+    | Call { class_ :: Id, callee :: Exp, method :: Id
+           , args :: [Exp] }
     | Function Id [Id] Exp
     | E_Int Int
     | E_false

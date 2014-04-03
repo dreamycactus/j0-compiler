@@ -26,7 +26,8 @@ type_ = do
         try typeInt
     <|> try typeId
 
-binary s f assoc = Ex.Infix (reservedOp s >> return (B_Op f)) assoc
+binary s f assoc
+    = Ex.Infix (reservedOp s >> return (B_Op f)) assoc
 
 binops = [[binary "*" Multiply Ex.AssocLeft
           ,binary "/" Divide Ex.AssocLeft]
@@ -67,13 +68,13 @@ variable = do
 
 call :: Parser Exp
 call = do
-    cn <- option ("this") (do
-        className <- identifier
-        _         <- char '.'
-        return className)
+    classId <- option "" (try (do
+        classId <- identifier
+        reservedOp "."
+        return classId))
     name <- identifier
     args <- parens $ commaSep expr
-    return $ Call cn (E_Id "" "") name args --todo fix
+    return $ Call classId (E_Id classId "") name args --todo fix
 
 program :: Parser Program
 program = do
@@ -107,7 +108,9 @@ methodDeclaration = do
     name    <- identifier
     args    <- parens $ commaSep variable
     (vars, stats, ret) <- braces (do {
-          vars    <- many $ try ( do { v <- variable; reservedOp ";"; return v })
+          vars    <- many $ try ( do { v <- variable;
+                                         reservedOp ";";
+                                         return v })
         ; stats   <- many statement
         ; ret     <- returnStatement
         ; return (vars, stats, ret)

@@ -24,9 +24,9 @@ import qualified LLVM.General.AST.IntegerPredicate as IP
 import qualified LLVM.General.AST.FloatingPointPredicate as FP
 import qualified LLVM.General.AST.Linkage as L
 import Debug.Trace
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 -- Module Level
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 
 data Module2 =
     Module2 { modul :: AST.Module,
@@ -43,9 +43,15 @@ runLLVM = do
     flip (execState . unLLVM)
 
 emptyModule :: String -> Module2
-emptyModule label = Module2 { modul = defaultModule { moduleName = label, moduleDefinitions =  []}, classFT = []}
+emptyModule label = Module2 { modul = defaultModule
+                             { moduleName = label
+                             , moduleDefinitions =  []}
+                             , classFT = []}
 
-putcharDef = external (IntegerType 32) "putchar" [(IntegerType 32, "i")]
+putcharDef = external (IntegerType 32) "putchar"
+                      [(IntegerType 32, "i")]
+printDef = external (IntegerType 32) "printf"
+                    [(IntegerType 8, "i"), (IntegerType 8, "s")]
 
 addDefn :: Definition -> LLVM ()
 addDefn newdef = do
@@ -53,11 +59,13 @@ addDefn newdef = do
   (Module a b c d) <- gets module2modul
   modify $ \s -> s { modul = (Module a b c (defs ++ [newdef])) }
 
-define ::  Type -> String -> [(Type, Name)] -> [BasicBlock] -> LLVM ()
+define ::  Type -> String -> [(Type, Name)] -> [BasicBlock]
+       -> LLVM ()
 define retty label argtys body = addDefn $
   GlobalDefinition $ functionDefaults {
     A.G.name        = Name label
-  , A.G.parameters  = ([Parameter ty nm [] | (ty, nm) <- argtys], False)
+  , A.G.parameters  = ( [Parameter ty nm []
+                      | (ty, nm) <- argtys], False)
   , A.G.returnType  = retty
   , A.G.basicBlocks = body
   }
@@ -66,30 +74,30 @@ external ::  Type -> String -> [(Type, Name)] -> LLVM ()
 external retty label argtys = addDefn $
   GlobalDefinition $ functionDefaults {
     A.G.name        = Name label
-  , A.G.parameters  = ([Parameter ty nm [] | (ty, nm) <- argtys], False)
+  , A.G.parameters  = ( [Parameter ty nm []
+                      | (ty, nm) <- argtys], False)
   , A.G.returnType  = retty
   , A.G.basicBlocks = []
   }
 
 defineClassStruct :: Name -> [(Type, Name)] -> LLVM ()
-defineClassStruct nm vars = do
+defineClassStruct nm@(Name nn) vars = do
     fts <- gets module2FTs
     modify $ \s -> s { classFT = fts ++ [ft] }
     addDefn $ ty
     addDefn $ GlobalDefinition $ globalVariableDefaults
-        { A.G.name = "hello"
+        { A.G.name = AST.Name $ nn ++  "0"
         , A.G.type' = NamedTypeReference nm
         }
-
     where
         ty = TypeDefinition nm $ Just st
         st = (StructureType False $ map fst vars )
         vars2 = map (\(x, AST.Name n) -> (x, n)) vars
         ft = ClassFieldTable ty vars2
 
----------------------------------------------------------------------------------
+----------------------------------------------------------------
 -- Types
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 
 -- IEEE 754 double
 double :: Type
@@ -101,9 +109,9 @@ integer_ = IntegerType
 clazz_ :: [Type] -> Type
 clazz_ ty = StructureType False ty
 
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 -- Names
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 
 type Names = Map.Map String Int
 
@@ -116,21 +124,24 @@ uniqueName nm ns =
 instance IsString Name where
   fromString = Name . fromString
 
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 -- Codegen State
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 
 type SymbolTable = [(String, (Type, Operand))]
 
 data ClassFieldTable
-    = ClassFieldTable { ty :: AST.Definition, fields :: [(AST.Type, String)] }
+    = ClassFieldTable { ty :: AST.Definition
+                      , fields :: [(AST.Type, String)] }
     deriving (Eq, Show)
 getFTFields (ClassFieldTable _ fds) = fds
 
 data CodegenState
   = CodegenState {
-    currentBlock :: Name                     -- Name of the active block to append to
-  , blocks       :: Map.Map Name BlockState  -- Blocks for function
+    -- Name of the active block to append to
+    currentBlock :: Name
+    -- Blocks for function
+  , blocks       :: Map.Map Name BlockState
   , symtab       :: SymbolTable              -- Function scope symbol table
   , blockCount   :: Int                      -- Count of basic blocks
   , count        :: Word                     -- Count of unnamed instructions
@@ -145,29 +156,31 @@ codeCurrentClass (CodegenState _ _ _ _ _ _ _ cl) = cl
 
 data BlockState
   = BlockState {
-    idx   :: Int                            -- Block index
-  , stack :: [Named Instruction]            -- Stack of instructions
-  , term  :: Maybe (Named Terminator)       -- Block terminator
+    idx   :: Int                      -- Block index
+  , stack :: [Named Instruction]      -- Stack of instructions
+  , term  :: Maybe (Named Terminator) -- Block terminator
   } deriving Show
 
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 -- Codegen Operations
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 
-newtype Codegen a = Codegen { runCodegen :: State CodegenState a }
-  deriving (Functor, Applicative, Monad, MonadState CodegenState )
+newtype Codegen a = Codegen{ runCodegen::State CodegenState a }
+  deriving (Functor,Applicative,Monad,MonadState CodegenState )
 
 sortBlocks :: [(Name, BlockState)] -> [(Name, BlockState)]
 sortBlocks = sortBy (compare `on` (idx . snd))
 
 createBlocks :: CodegenState -> [BasicBlock]
-createBlocks m = map makeBlock $ sortBlocks $ Map.toList (blocks m)
+createBlocks m = map makeBlock $ sortBlocks
+                                    $ Map.toList (blocks m)
 
 makeBlock :: (Name, BlockState) -> BasicBlock
 makeBlock (l, (BlockState _ s t)) = BasicBlock l s (maketerm t)
   where
     maketerm (Just x) = x
-    maketerm Nothing = error $ "Block has no terminator: " ++ (show l)
+    maketerm Nothing
+        = error $ "Block has no terminator: "++(show l)
 
 entryBlockName :: String
 entryBlockName = "entry"
@@ -176,10 +189,15 @@ emptyBlock :: Int -> BlockState
 emptyBlock i = BlockState i [] Nothing
 
 emptyCodegen :: [ClassFieldTable] -> String -> CodegenState
-emptyCodegen cft clazz = CodegenState (Name entryBlockName) Map.empty [] 1 0 Map.empty cft (clazz, Nothing)
+emptyCodegen cft clazz = CodegenState (Name entryBlockName)
+                                      Map.empty [] 1 0
+                                      Map.empty cft
+                                      (clazz, Nothing)
 
-execCodegen :: [ClassFieldTable]-> String -> Codegen a -> CodegenState
-execCodegen cft clazz m = execState (runCodegen m) $ emptyCodegen cft clazz
+execCodegen :: [ClassFieldTable]-> String -> Codegen a
+            -> CodegenState
+execCodegen cft clazz m = execState ( runCodegen m)
+                                    $ emptyCodegen cft clazz
 
 fresh :: Codegen Word
 fresh = do
@@ -202,10 +220,9 @@ terminator trm = do
   modifyBlock (blk { term = Just trm })
   return trm
 
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 -- Block Stack
--------------------------------------------------------------------------------
-
+----------------------------------------------------------------
 entry :: Codegen Name
 entry = gets currentBlock
 
@@ -243,9 +260,9 @@ current = do
     Just x -> return x
     Nothing -> error $ "No such block: " ++ show c
 
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 -- Symbol Table
--------------------------------------------------------------------------------
+----------------------------------------------------------------
 assign :: String -> Type -> Operand -> Codegen ()
 assign var ty x = do
   lcls <- gets symtab
@@ -256,7 +273,7 @@ getvar var = do
   syms <- gets symtab
   case lookup var syms of
     Just x  -> return x
-    Nothing -> error $ "Local variable not in scope: " ++ show var
+    Nothing -> error $ "Local variable not in scope: "++show var
 
 
 -- References
@@ -270,7 +287,8 @@ externf :: Name -> Operand
 externf = ConstantOperand . C.GlobalReference
 
 -- Arithmetic and Constants
-icmp :: IP.IntegerPredicate -> Operand -> Operand -> Codegen Operand
+icmp :: IP.IntegerPredicate -> Operand -> Operand
+     -> Codegen Operand
 icmp cond a b = instr $ ICmp cond a b []
 
 iadd :: Operand -> Operand -> Codegen Operand
@@ -297,7 +315,8 @@ fmul a b = instr $ FMul a b []
 fdiv :: Operand -> Operand -> Codegen Operand
 fdiv a b = instr $ FDiv a b []
 
-fcmp :: FP.FloatingPointPredicate -> Operand -> Operand -> Codegen Operand
+fcmp :: FP.FloatingPointPredicate -> Operand -> Operand
+     -> Codegen Operand
 fcmp cond a b = instr $ FCmp cond a b []
 
 cons :: C.Constant -> Operand
@@ -311,7 +330,8 @@ toArgs = map (\x -> (x, []))
 
 -- Effects
 call :: Operand -> [Operand] -> Codegen Operand
-call fn args = instr $ Call False CC.C [] (Right fn) (toArgs args) [] []
+call fn args = instr $ Call False CC.C [] (Right fn)
+                            (toArgs args) [] []
 
 alloca :: Type -> Codegen Operand
 alloca ty = instr $ Alloca ty Nothing 0 []
@@ -337,11 +357,12 @@ ret val = terminator $ Do $ Ret (Just val) []
 
 -- Class Struct
 structFieldFromOff :: Operand -> Int -> Codegen Operand
-structFieldFromOff ty off = do
-                                 res <- instr $ GetElementPtr
-                                        True
-                                        ty
---                                        (ConstantOperand $ C.Null (PointerType ty (AddrSpace 0)))
-                                        [ConstantOperand $ C.Int 32 0, ConstantOperand $ C.Int 32 (fromIntegral off)]
-                                        []
-                                 return res
+structFieldFromOff ty off
+    = do
+         res <- instr $ GetElementPtr
+                True
+                ty
+                [ ConstantOperand $ C.Int 32 0
+                , ConstantOperand $ C.Int 32 (fromIntegral off)]
+                []
+         return res
