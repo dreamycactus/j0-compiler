@@ -14,6 +14,9 @@ simply run the compiler executable like so:
 src myinputfile.j0.
 
 This will generate a myinputfile.j0.ll.
+
 Then you can use the llvm toolchain to create an executable:
+
 llc myinputfile.j0.ll
+
 gcc myinputfile.j0.s
