@@ -93,8 +93,7 @@ external retty label argtys = addDefn $
 \end{code}
 Whenever a class is defined, a llvm struct type is created with the appropriate field
 members. Functions are assigned to a class via special compiler prefixes, or would be
-in a more complete version. In this version a global variable of the class type is declared
-automatically for each class definition. I have found this useful for debugging.
+in a more complete version. 
 \begin{code}
 defineClassStruct :: Name -> [(Type, Name)] -> LLVM ()
 defineClassStruct nm@(Name nn) vars = do

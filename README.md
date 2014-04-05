@@ -10,7 +10,7 @@ The compiler itself probably has quite a few bugs. It isn't fully correct, and o
 Instructions & Notes
 ============
 I built this program using llvm-general v.3.3.11.1, I am not sure it works with any other version. To run,
-simply run the compiler executable like so:
+simply run the compiler executable from the test directory like so:
 src myinputfile.j0.
 
 This will generate a myinputfile.j0.ll.

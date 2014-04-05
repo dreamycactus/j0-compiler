@@ -1,5 +1,8 @@
 dist
 cabal-dev
+*.out
+*.log
+*.aux
 *.o
 *.hi
 *.chi
