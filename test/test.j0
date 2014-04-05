@@ -1,0 +1,30 @@
+class Foo {
+	int a;
+	int b;
+	int baz() { return b+1; }
+}
+
+class Bar {
+	int a;
+	int main() {
+		int c;
+		Foo g;
+
+		c = 0;
+		g.a = 5;
+		g.b = c;
+		if (a-g.a) then {
+			print(65); print(66); print(67);
+		} else {
+			print(65); print(65); print(65);
+		}
+
+		if (g.baz()) then {
+			print(69);
+		} else {
+			print(70);
+		}
+		return g.a;
+	}
+	int t() { return a; }
+}
